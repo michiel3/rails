@@ -187,6 +187,21 @@ module ActionDispatch
       end
     end
 
+    module DecryptVerifyAndUpgradeLegacyEncryptedMessage
+      def initialize(*args)
+        super
+        @legacy_encryptor = ActiveSupport::MessageEncryptor.new(@options[:secret_token])
+      end
+
+      def decrypt_verify_and_upgrade_legacy_encrypted_message(name, encrypted_message)
+        @legacy_encryptor.decrypt_and_verify(encrypted_message).tap do |value|
+          self[name] = value
+        end
+      rescue ActiveSupport::MessageVerifier::InvalidSignature, ActiveSupport::MessageEncryptor::InvalidMessage
+        nil
+      end
+    end
+
     class CookieJar #:nodoc:
       include Enumerable, ChainedCookieJars
 
@@ -470,10 +485,13 @@ module ActionDispatch
     # encrypts and re-saves them using the new key generator to provide a smooth upgrade path.
     class UpgradeLegacyEncryptedCookieJar < EncryptedCookieJar #:nodoc:
       include VerifyAndUpgradeLegacySignedMessage
+      include DecryptVerifyAndUpgradeLegacyEncryptedMessage
 
       def [](name)
         if encrypted_or_signed_message = @parent_jar[name]
-          decrypt_and_verify(encrypted_or_signed_message) || verify_and_upgrade_legacy_signed_message(name, encrypted_or_signed_message)
+          decrypt_and_verify(encrypted_or_signed_message) ||
+            decrypt_verify_and_upgrade_legacy_encrypted_message(name, encrypted_or_signed_message) ||
+            verify_and_upgrade_legacy_signed_message(name, encrypted_or_signed_message)
         end
       end
     end
